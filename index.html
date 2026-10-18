@@ -72,6 +72,7 @@ h3 { font-size: 15px; margin: 0 0 4px; }
   <!-- 1. scan -->
   <section class="kort" id="trinScan">
     <button class="scan" id="scan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M7 8v8M10 8v8M13 8v8M17 8v8"/></svg>Scan stregkode</button>
+    <input type="file" id="foto" accept="image/*" capture="environment" hidden>
     <form class="manuel" id="manuel"><input id="kode" inputmode="numeric" autocomplete="off" placeholder="… eller skriv stregkoden"><button>Find</button></form>
   </section>
 
@@ -99,7 +100,7 @@ h3 { font-size: 15px; margin: 0 0 4px; }
     <h3>Gemt i denne omgang</h3>
     <ul class="liste historik" id="historik"><li class="meta">Intet endnu.</li></ul>
   </section>
-  <p class="meta" style="text-align:center">Version 2 · 18. okt.</p>
+  <p class="meta" style="text-align:center">Version 3 · 18. okt.</p>
 </main>
 
 <script>
@@ -246,25 +247,47 @@ async function kobl(v) {
 }
 
 // ---------- scanner ----------
-// Shopifys scanner findes kun i Shopify-appen på telefonen (og POS). På computeren svarer capture() aldrig,
-// så der bruges feltet i stedet.
+// Shopifys egen scanner (shopify.scanner.capture) svarer aldrig i Shopify-appen på telefonen – kun i POS (afprøvet 18. okt).
+// På telefonen tager man derfor et billede af stregkoden med kameraet (filfelt med capture), og billedet læses her i appen:
+// først med browserens BarcodeDetector, hvis den findes, ellers med zxing-wasm (hentes første gang).
 const PAA_TELEFON = () => !!(window.shopify?.environment?.mobile || window.shopify?.environment?.pos);
-async function scan() {
-  if (!window.shopify?.scanner?.capture || !PAA_TELEFON()) {
-    besked('info', 'Scanneren virker kun i Shopify-appen på telefonen', 'Her på computeren: skriv stregkoden i feltet, eller brug en håndscanner – den skriver i feltet.');
-    $('kode').focus(); return;
-  }
-  besked('info', 'Åbner scanneren …');
-  try {
-    const svar = await shopify.scanner.capture();
-    besked();
-    const kode = svar?.data ?? svar;
-    if (kode) findKode(String(kode)); else besked('info', 'Ingen stregkode læst', 'Prøv igen, eller skriv stregkoden i feltet.');
-  } catch (e) {
-    const t = e?.message || String(e || '');
-    if (/cancel|annul|closed|dismiss/i.test(t)) besked(); else besked('fejl', 'Scanneren kunne ikke åbnes', t || 'Ukendt fejl fra Shopify. Skriv stregkoden i feltet i stedet.');
-  }
+const FORMATER = ['EAN-13', 'EAN-8', 'UPC-A', 'UPC-E', 'Code128', 'Code39', 'ITF', 'QRCode', 'DataMatrix'];
+const ZXING = 'https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.4/dist/';
+let zxingKlar = null;
+function hentZxing() {
+  return zxingKlar ||= new Promise((ok, fejl) => {
+    const s = document.createElement('script'); s.src = ZXING + 'iife/reader/index.js';
+    s.onload = () => { ZXingWASM.prepareZXingModule({ overrides: { locateFile: (sti, prefix) => (sti.endsWith('.wasm') ? ZXING + 'reader/zxing_reader.wasm' : prefix + sti) }, fireImmediately: true }).then(() => ok(ZXingWASM), fejl); };
+    s.onerror = () => { zxingKlar = null; fejl(new Error('Stregkodelæseren kunne ikke hentes')); };
+    document.head.appendChild(s);
+  });
 }
+async function laesBillede(fil) {
+  // store kamerabilleder skaleres ned, så læsningen går hurtigt
+  const bm = await createImageBitmap(fil), maks = 1800, k = Math.min(1, maks / Math.max(bm.width, bm.height));
+  const c = document.createElement('canvas'); c.width = Math.round(bm.width * k); c.height = Math.round(bm.height * k);
+  const x = c.getContext('2d'); x.drawImage(bm, 0, 0, c.width, c.height);
+  if ('BarcodeDetector' in window) {
+    try { const r = await new BarcodeDetector().detect(c); if (r.length) return r[0].rawValue; } catch {}
+  }
+  const zx = await hentZxing();
+  const r = await zx.readBarcodes(x.getImageData(0, 0, c.width, c.height), { formats: FORMATER, tryHarder: true, tryRotate: true, maxNumberOfSymbols: 1 });
+  return r.find((b) => b.isValid)?.text || null;
+}
+function scan() {
+  if (PAA_TELEFON()) { hentZxing().catch(() => {}); $('foto').value = ''; $('foto').click(); return; }
+  besked('info', 'Scan med telefonen', 'Her på computeren: skriv stregkoden i feltet, eller brug en håndscanner – den skriver i feltet.');
+  $('kode').focus();
+}
+$('foto').onchange = async () => {
+  const fil = $('foto').files[0]; if (!fil) return;
+  besked('info', 'Læser stregkoden …');
+  try {
+    const kode = await laesBillede(fil);
+    if (kode) { besked(); findKode(kode); }
+    else besked('fejl', 'Kunne ikke læse stregkoden', 'Tag billedet igen tæt på, skarpt og med hele stregkoden i billedet – eller skriv tallene i feltet.');
+  } catch (e) { besked('fejl', 'Kunne ikke læse billedet', e.message + ' – skriv stregkoden i feltet i stedet.'); }
+};
 
 // ---------- knapper ----------
 $('scan').onclick = scan;
