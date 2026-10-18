@@ -56,6 +56,8 @@ button { font: inherit; cursor: pointer; border: 0; border-radius: 14px; }
 .historik li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; }
 .historik li + li { border-top: 1px solid var(--linje); }
 .skjult { display: none !important; }
+.usynlig { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
+label.scan { cursor: pointer; border-radius: 14px; user-select: none; -webkit-user-select: none; }
 h3 { font-size: 15px; margin: 0 0 4px; }
 .knapper { display: flex; gap: 10px; margin-top: 14px; }
 .knapper button { flex: 1; padding: 14px; font-weight: 600; }
@@ -71,8 +73,8 @@ h3 { font-size: 15px; margin: 0 0 4px; }
 
   <!-- 1. scan -->
   <section class="kort" id="trinScan">
-    <button class="scan" id="scan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M7 8v8M10 8v8M13 8v8M17 8v8"/></svg>Scan stregkode</button>
-    <input type="file" id="foto" accept="image/*" capture="environment" hidden>
+    <label class="scan" id="scan" for="foto" role="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M7 8v8M10 8v8M13 8v8M17 8v8"/></svg>Scan stregkode</label>
+    <input type="file" id="foto" accept="image/*" capture="environment" class="usynlig">
     <form class="manuel" id="manuel"><input id="kode" inputmode="numeric" autocomplete="off" placeholder="… eller skriv stregkoden"><button>Find</button></form>
   </section>
 
@@ -100,10 +102,12 @@ h3 { font-size: 15px; margin: 0 0 4px; }
     <h3>Gemt i denne omgang</h3>
     <ul class="liste historik" id="historik"><li class="meta">Intet endnu.</li></ul>
   </section>
-  <p class="meta" style="text-align:center">Version 3 · 18. okt.</p>
+  <p class="meta" style="text-align:center">Version 4 · 18. okt.</p>
 </main>
 
 <script>
+window.addEventListener('error', (e) => { const b = document.getElementById('besked'); if (b) b.innerHTML = '<div class="besked fejl"><b>Fejl i appen</b>' + String(e.message || e.error || 'ukendt').replace(/</g, '&lt;') + '</div>'; });
+window.addEventListener('unhandledrejection', (e) => { const b = document.getElementById('besked'); if (b) b.innerHTML = '<div class="besked fejl"><b>Fejl i appen</b>' + String(e.reason?.message || e.reason || 'ukendt').replace(/</g, '&lt;') + '</div>'; });
 const qs = new URLSearchParams(location.search), LOKAL = qs.has('lokal');
 const $ = (id) => document.getElementById(id);
 const API = LOKAL ? '/graphql' : 'shopify:admin/api/2026-07/graphql.json';
@@ -274,11 +278,6 @@ async function laesBillede(fil) {
   const r = await zx.readBarcodes(x.getImageData(0, 0, c.width, c.height), { formats: FORMATER, tryHarder: true, tryRotate: true, maxNumberOfSymbols: 1 });
   return r.find((b) => b.isValid)?.text || null;
 }
-function scan() {
-  if (PAA_TELEFON()) { hentZxing().catch(() => {}); $('foto').value = ''; $('foto').click(); return; }
-  besked('info', 'Scan med telefonen', 'Her på computeren: skriv stregkoden i feltet, eller brug en håndscanner – den skriver i feltet.');
-  $('kode').focus();
-}
 $('foto').onchange = async () => {
   const fil = $('foto').files[0]; if (!fil) return;
   besked('info', 'Læser stregkoden …');
@@ -290,7 +289,7 @@ $('foto').onchange = async () => {
 };
 
 // ---------- knapper ----------
-$('scan').onclick = scan;
+$('scan').addEventListener('click', () => { hentZxing().catch(() => {}); $('foto').value = ''; });
 $('manuel').onsubmit = (e) => { e.preventDefault(); findKode($('kode').value); };
 $('soegForm').onsubmit = (e) => { e.preventDefault(); soeg($('soeg').value); };
 $('resultater').onclick = (e) => { const b = e.target.closest('[data-i]'); if (!b) return; const v = LISTE[+b.dataset.i]; b.dataset.kobl === '1' ? kobl(v) : visVare(v); };
