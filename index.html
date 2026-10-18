@@ -99,6 +99,7 @@ h3 { font-size: 15px; margin: 0 0 4px; }
     <h3>Gemt i denne omgang</h3>
     <ul class="liste historik" id="historik"><li class="meta">Intet endnu.</li></ul>
   </section>
+  <p class="meta" style="text-align:center">Version 2 · 18. okt.</p>
 </main>
 
 <script>
@@ -245,11 +246,24 @@ async function kobl(v) {
 }
 
 // ---------- scanner ----------
+// Shopifys scanner findes kun i Shopify-appen på telefonen (og POS). På computeren svarer capture() aldrig,
+// så der bruges feltet i stedet.
+const PAA_TELEFON = () => !!(window.shopify?.environment?.mobile || window.shopify?.environment?.pos);
 async function scan() {
-  if (window.shopify?.scanner?.capture) {
-    try { const { data } = await shopify.scanner.capture(); if (data) findKode(String(data)); }
-    catch (e) { if (!/cancel/i.test(e?.message || '')) besked('fejl', 'Scanningen blev afbrudt', e?.message || ''); }
-  } else { besked('info', 'Scanneren findes kun i Shopify-appen', 'Skriv stregkoden i feltet i stedet.'); $('kode').focus(); }
+  if (!window.shopify?.scanner?.capture || !PAA_TELEFON()) {
+    besked('info', 'Scanneren virker kun i Shopify-appen på telefonen', 'Her på computeren: skriv stregkoden i feltet, eller brug en håndscanner – den skriver i feltet.');
+    $('kode').focus(); return;
+  }
+  besked('info', 'Åbner scanneren …');
+  try {
+    const svar = await shopify.scanner.capture();
+    besked();
+    const kode = svar?.data ?? svar;
+    if (kode) findKode(String(kode)); else besked('info', 'Ingen stregkode læst', 'Prøv igen, eller skriv stregkoden i feltet.');
+  } catch (e) {
+    const t = e?.message || String(e || '');
+    if (/cancel|annul|closed|dismiss/i.test(t)) besked(); else besked('fejl', 'Scanneren kunne ikke åbnes', t || 'Ukendt fejl fra Shopify. Skriv stregkoden i feltet i stedet.');
+  }
 }
 
 // ---------- knapper ----------
@@ -265,6 +279,7 @@ $('antal').onfocus = (e) => e.target.select();
 $('gem').onclick = gemLager;
 $('fortryd').onclick = () => nulstil(); $('fortrydKobl').onclick = () => nulstil();
 
+if (!PAA_TELEFON()) setTimeout(() => $('kode').focus(), 300); // på computeren er feltet klar til en håndscanner
 hentLokationer().catch((e) => { $('lokation').textContent = ''; besked('fejl', 'Kunne ikke forbinde til Shopify', e.message + (LOKAL ? '' : ' – er appen åbnet inde i Shopify?')); });
 </script>
 </body>
